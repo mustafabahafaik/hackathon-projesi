@@ -106,6 +106,13 @@ pub struct Config {
     pub admin: Address,
     pub defindex_vault: Address,
     pub soroswap_router: Address,
+    /// SEP-41 token contract `deposit()` pulls from the tenant. Added in
+    /// Phase 1.2 — not part of CLAUDE.md's original config list (admin,
+    /// DeFindex vault, Soroswap router addresses), but `deposit()` cannot
+    /// collect an asset without knowing which contract it is. Flagged here
+    /// per CLAUDE.md rule 10; worth folding into CLAUDE.md's own env-var
+    /// list (`USDC_TOKEN_ADDRESS`) alongside the others.
+    pub usdc_token: Address,
 }
 
 /// Every storage key the contract uses, in one place so the split across
@@ -116,6 +123,10 @@ pub struct Config {
 #[derive(Clone, Debug)]
 pub enum DataKey {
     Config,
+    /// Instance storage, alongside `Config`: a single counter is exactly
+    /// the same "small, always-needed, contract-lifetime" shape as the
+    /// config addresses, not a per-lease record.
+    NextLeaseId,
     Lease(u64),
     Photo(u64, PhotoPhase, Party),
 }

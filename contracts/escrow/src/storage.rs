@@ -51,6 +51,24 @@ pub fn set_config(env: &Env, config: &Config) {
         .extend_ttl(BUMP_THRESHOLD, BUMP_EXTEND_TO);
 }
 
+/// Hands out the next lease id and advances the counter. Instance storage,
+/// same reasoning as `Config`: one small always-needed value, not a
+/// per-lease record — see the module doc.
+pub fn next_lease_id(env: &Env) -> u64 {
+    let current: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::NextLeaseId)
+        .unwrap_or(1);
+    env.storage()
+        .instance()
+        .set(&DataKey::NextLeaseId, &(current + 1));
+    env.storage()
+        .instance()
+        .extend_ttl(BUMP_THRESHOLD, BUMP_EXTEND_TO);
+    current
+}
+
 // ------------------------------------------------- lease records (persistent) --
 
 pub fn has_lease(env: &Env, lease_id: u64) -> bool {
@@ -123,10 +141,12 @@ mod test {
         let soroswap_router = Address::generate(&env);
 
         env.as_contract(&contract_id, || {
+            let usdc_token = Address::generate(&env);
             let config = Config {
                 admin: admin.clone(),
                 defindex_vault: defindex_vault.clone(),
                 soroswap_router: soroswap_router.clone(),
+                usdc_token: usdc_token.clone(),
             };
             set_config(&env, &config);
 
@@ -142,6 +162,17 @@ mod test {
         let contract_id = setup(&env);
         env.as_contract(&contract_id, || {
             get_config(&env);
+        });
+    }
+
+    #[test]
+    fn next_lease_id_starts_at_one_and_advances() {
+        let env = Env::default();
+        let contract_id = setup(&env);
+        env.as_contract(&contract_id, || {
+            assert_eq!(next_lease_id(&env), 1);
+            assert_eq!(next_lease_id(&env), 2);
+            assert_eq!(next_lease_id(&env), 3);
         });
     }
 
