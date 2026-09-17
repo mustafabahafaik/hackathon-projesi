@@ -59,15 +59,17 @@ export default function LoginPage() {
             <button type="button" className="btn btn-primary btn-block" onClick={sendCode}>
               Doğrulama kodu gönder
             </button>
-            <div className="text-[12px] leading-[1.6] text-neutral-400">
-              {hint || "Devam ederek aydınlatma metnini ve emanet koşullarını kabul etmiş olursunuz."}
+            <div className="grid gap-1 text-[12px] leading-[1.6] text-neutral-400">
+              <span>Devam ederek aydınlatma metnini ve emanet koşullarını kabul etmiş olursunuz.</span>
+              {hint && <span>{hint}</span>}
             </div>
           </div>
         ) : (
           <div className="grid gap-6">
             <h1 className="m-0 font-heading text-[22px] font-medium">Kodu girin</h1>
             <p className="m-0 text-[13.5px] leading-[1.65] text-neutral-300">
-              {email} adresine 6 haneli bir kod gönderdik.
+              {email} adresine 6 haneli bir kod gönderdik. Privy bağlanana kadar demoda herhangi bir
+              4+ hane çalışır.
             </p>
             <div className="field">
               <label htmlFor="lg-code">Doğrulama kodu</label>
