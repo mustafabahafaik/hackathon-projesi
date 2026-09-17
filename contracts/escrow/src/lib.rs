@@ -1,17 +1,18 @@
-//! Depozito escrow contract — scaffold.
+//! Depozito escrow contract.
 //!
-//! Empty on purpose: this is the repo-structure step from CLAUDE.md's MVP
-//! order. The real entry points land next, in this order —
-//! `create_lease`, `deposit`, `record_photo_hash`, `settle_undisputed`,
-//! then the dispute cycle (`initiate_dispute`, `submit_offer`,
-//! `submit_final_offer`, `arbitrator_decide`, `official_ruling`).
+//! `types` is the data model, `storage` is the only code that touches
+//! `env.storage()` directly — see storage.rs for the instance / persistent /
+//! temporary split (CLAUDE.md rule 2) and why each type lives where it does.
 //!
-//! Storage type is chosen per CLAUDE.md rule 2 and must stay commented at
-//! the point of use once real state lands:
-//!   instance   -> admin, arbiter, DeFindex vault, Soroswap router addresses
-//!   persistent -> lease record, photo hashes, offer history, settlement, ruling
-//!   temporary  -> invite token, the active offer round's session data
+//! No business logic yet. The public entry points land next, in this
+//! order — `create_lease`, `deposit`, `record_photo_hash`,
+//! `settle_undisputed`, then the dispute cycle (`initiate_dispute`,
+//! `submit_offer`, `submit_final_offer`, `arbitrator_decide`,
+//! `official_ruling`).
 #![no_std]
+
+pub mod types;
+mod storage;
 
 use soroban_sdk::{contract, contractimpl};
 
