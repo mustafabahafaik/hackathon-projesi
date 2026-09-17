@@ -44,6 +44,10 @@ pub fn get_config(env: &Env) -> Config {
         .expect("config not set — call initialize() first")
 }
 
+pub fn has_config(env: &Env) -> bool {
+    env.storage().instance().has(&DataKey::Config)
+}
+
 pub fn set_config(env: &Env, config: &Config) {
     env.storage().instance().set(&DataKey::Config, config);
     env.storage()
@@ -162,6 +166,25 @@ mod test {
         let contract_id = setup(&env);
         env.as_contract(&contract_id, || {
             get_config(&env);
+        });
+    }
+
+    #[test]
+    fn has_config_reflects_whether_it_was_set() {
+        let env = Env::default();
+        let contract_id = setup(&env);
+        env.as_contract(&contract_id, || {
+            assert!(!has_config(&env));
+            set_config(
+                &env,
+                &Config {
+                    admin: Address::generate(&env),
+                    defindex_vault: Address::generate(&env),
+                    soroswap_router: Address::generate(&env),
+                    usdc_token: Address::generate(&env),
+                },
+            );
+            assert!(has_config(&env));
         });
     }
 

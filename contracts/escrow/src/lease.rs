@@ -53,10 +53,7 @@ pub fn create_lease(
 /// record itself, not a caller-supplied parameter, so there's nothing for a
 /// caller to lie about.
 ///
-/// This assumes `storage::set_config` has already been called — there is no
-/// public `initialize()` yet (out of scope for this phase). That is a real
-/// gap: as it stands, nothing can set config on a live deployment. Add
-/// `initialize()` before this contract goes anywhere near testnet.
+/// Assumes `config::initialize` has already run.
 pub fn deposit(env: &Env, lease_id: u64) {
     let mut lease = storage::get_lease(env, lease_id);
     lease.tenant.require_auth();
@@ -450,5 +447,30 @@ mod test {
         });
 
         client.settle_undisputed(&lease_id);
+    }
+
+    // ---- get_lease ---------------------------------------------------
+    // Read-only, no auth by design (see lib.rs) — one happy-path test is
+    // all there is to check; there's no unauthorized-caller case to reject.
+
+    #[test]
+    fn get_lease_returns_the_stored_record() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = setup(&env);
+        let client = EscrowContractClient::new(&env, &contract_id);
+
+        let owner = Address::generate(&env);
+        let tenant = Address::generate(&env);
+        let arbitrator = Address::generate(&env);
+        let amount = 1_000_0000000i128;
+        let term = env.ledger().timestamp() + 1;
+
+        let lease_id = client.create_lease(&owner, &tenant, &arbitrator, &amount, &term);
+        let lease = client.get_lease(&lease_id);
+
+        assert_eq!(lease.owner, owner);
+        assert_eq!(lease.tenant, tenant);
+        assert_eq!(lease.status, LeaseStatus::Created);
     }
 }

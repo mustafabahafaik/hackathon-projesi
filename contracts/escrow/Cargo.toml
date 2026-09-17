@@ -9,10 +9,10 @@ crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
-soroban-sdk = "22.0.0"
+soroban-sdk = "27.0.6"
 
 [dev-dependencies]
-soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+soroban-sdk = { version = "27.0.6", features = ["testutils"] }
 
 # Soroban wasm builds need this profile — panics abort instead of unwinding,
 # and the binary is optimized for size, not speed.

@@ -1,8 +1,6 @@
 # docs
 
-Boş — henüz kurulmadı.
-
-CLAUDE.md'nin öngördüğü iki dosya buraya gelecek:
-
-- `architecture.md` — tam mimari dokümanın markdown kopyası / Mermaid diyagramları.
-- `submission.md` — hackathon submission checklist'i ve deploy edilen kontrat ID'leri.
+- `submission.md` — deploy edilen escrow kontratının testnet contract ID'si, wasm hash'i,
+  deploy/smoke-test tx linkleri ve toolchain notları. Var.
+- `architecture.md` — henüz yok. Tam mimari dokümanın markdown kopyası / Mermaid
+  diyagramları buraya gelecek (CLAUDE.md → mimari doküman linki).
