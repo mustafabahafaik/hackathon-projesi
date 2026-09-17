@@ -1,7 +1,37 @@
 /** Values derived from a lease. Kept out of the components so the tabs stay declarative. */
 
+import { LeaseStatus } from "@depozito/sdk";
 import { ROOMS } from "./demo-data";
 import type { Lease } from "./types";
+
+/**
+ * Maps this prototype's local lease shape onto the canonical `LeaseStatus`
+ * from `@depozito/sdk` — the status enum the API and the contract will
+ * eventually agree on. Two notes on where the mapping is lossy:
+ *
+ * - `depStep` 1-3 (KYC done, bank transfer done, swap done, but the vault
+ *   deposit hasn't landed) all read as `Created` — the enum has no separate
+ *   "funding in progress" step, only "not funded" and "funded".
+ * - This prototype never distinguishes the instant `initiate_dispute` runs
+ *   (`Disputed`) from actively trading offers (`Negotiating`) — both are
+ *   the same `dispute.round <= 3` window here, so it maps to `Negotiating`.
+ *   `Disputed` and `Frozen` are reachable once a real reject-the-ruling flow
+ *   exists; the current store has no action that produces them.
+ */
+export function leaseStatus(lease: Lease): LeaseStatus {
+  if (lease.dispute) {
+    if (lease.dispute.ruling) return LeaseStatus.Resolved;
+    return lease.dispute.round > 3 ? LeaseStatus.Arbitrating : LeaseStatus.Negotiating;
+  }
+  if (lease.settled) {
+    return lease.items.some((i) => i.status === "itiraz")
+      ? LeaseStatus.PartialPaid
+      : LeaseStatus.Resolved;
+  }
+  if (lease.depStep < 4) return LeaseStatus.Created;
+  if (lease.outLocked) return LeaseStatus.Settling;
+  return lease.photosIn.every((p) => p.hash) ? LeaseStatus.Active : LeaseStatus.Funded;
+}
 
 export interface DepositStepRow {
   title: string;
@@ -35,12 +65,31 @@ export const DEPOSIT_CTA = [
   "Depozito emanette",
 ];
 
+const STATUS_LABEL: Record<LeaseStatus, string> = {
+  [LeaseStatus.Created]: "Depozito bekliyor",
+  [LeaseStatus.Funded]: "Emanette",
+  [LeaseStatus.Active]: "Emanette",
+  [LeaseStatus.Settling]: "Emanette",
+  [LeaseStatus.Disputed]: "Anlaşmazlık",
+  [LeaseStatus.PartialPaid]: "Kapandı",
+  [LeaseStatus.Negotiating]: "Anlaşmazlık",
+  [LeaseStatus.Arbitrating]: "Anlaşmazlık",
+  [LeaseStatus.Frozen]: "Anlaşmazlık",
+  [LeaseStatus.Resolved]: "Kapandı",
+};
+
+const STATUS_LABEL_LONG: Partial<Record<LeaseStatus, string>> = {
+  [LeaseStatus.Disputed]: "Anlaşmazlık sürüyor",
+  [LeaseStatus.Negotiating]: "Anlaşmazlık sürüyor",
+  [LeaseStatus.Arbitrating]: "Anlaşmazlık sürüyor",
+  [LeaseStatus.Frozen]: "Anlaşmazlık sürüyor",
+};
+
 /** Short lifecycle label, used on the sidebar cards and the lease header. */
 export function statusText(lease: Lease, long = false): string {
-  if (lease.settled) return "Kapandı";
-  if (lease.dispute) return long ? "Anlaşmazlık sürüyor" : "Anlaşmazlık";
-  if (lease.depStep < 4) return "Depozito bekliyor";
-  return "Emanette";
+  const status = leaseStatus(lease);
+  if (long) return STATUS_LABEL_LONG[status] ?? STATUS_LABEL[status];
+  return STATUS_LABEL[status];
 }
 
 export interface ExitTotals {

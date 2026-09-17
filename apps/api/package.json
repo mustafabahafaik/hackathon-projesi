@@ -9,7 +9,9 @@
     "start": "node dist/index.js",
     "test": "echo \"no tests yet\" && exit 0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@depozito/sdk": "*"
+  },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",

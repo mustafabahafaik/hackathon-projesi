@@ -1,0 +1,12 @@
+{
+  "name": "depozito",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:sdk": "npm run build -w @depozito/sdk"
+  }
+}
