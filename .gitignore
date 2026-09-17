@@ -1,0 +1,19 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+.env
+.env.local
+.env.*.local
+
+target/
+**/*.rs.bk
+
+.DS_Store
+Thumbs.db
+*.log
+
+# Design handoff is kept as the zip; the extracted copy is local only.
+_design_extract/
