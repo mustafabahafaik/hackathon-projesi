@@ -2,12 +2,13 @@
 //!
 //! `types` is the data model, `storage` is the only code that touches
 //! `env.storage()` directly (instance / persistent / temporary split per
-//! CLAUDE.md rule 2), `vault` stands in for the DeFindex integration until
-//! Phase 2, `config` holds one-time setup, `lease` holds the lease
-//! lifecycle (create/fund/settle), `photo` holds the evidence attestations,
-//! and `dispute` holds the dispute resolution cycle. This `impl` block
-//! itself stays a thin wrapper per function so everything else can live in,
-//! and be tested from, its own file.
+//! CLAUDE.md rule 2), `vault` is the real DeFindex vault integration
+//! (cross-contract calls — see its own doc comment for how that's verified
+//! against the live testnet vault), `config` holds one-time setup, `lease`
+//! holds the lease lifecycle (create/fund/settle), `photo` holds the
+//! evidence attestations, and `dispute` holds the dispute resolution cycle.
+//! This `impl` block itself stays a thin wrapper per function so everything
+//! else can live in, and be tested from, its own file.
 //!
 //! Implemented: `initialize`, `create_lease`, `deposit`,
 //! `record_photo_hash`, `settle_undisputed`, `initiate_dispute`,

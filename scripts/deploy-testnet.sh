@@ -66,7 +66,12 @@ log "optimizing wasm"
 # build --optimize`, which builds from source rather than optimizing an
 # existing .wasm) but is still the correct command for optimizing an
 # already-built artifact like this one.
-stellar contract optimize --wasm "$WASM_PATH"
+#
+# Redirected to stderr: unlike every other `stellar` subcommand this script
+# calls, `optimize` writes its "Reading: ... (N bytes)" progress line to
+# stdout, not stderr — left alone, that breaks this script's own documented
+# contract (stdout = just the contract ID, safe for `CONTRACT_ID=$(...)`).
+stellar contract optimize --wasm "$WASM_PATH" >&2
 OPTIMIZED_WASM="${WASM_PATH%.wasm}.optimized.wasm"
 [ -f "$OPTIMIZED_WASM" ] || OPTIMIZED_WASM="$WASM_PATH"
 

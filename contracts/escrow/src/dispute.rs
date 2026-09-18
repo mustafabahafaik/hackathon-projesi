@@ -61,7 +61,7 @@
 
 use crate::storage;
 use crate::types::{Dispute, Lease, LeaseStatus, Party};
-use crate::vault::{MockVault, Vault};
+use crate::vault::{DefindexVault, Vault};
 use soroban_sdk::{token, Address, Env};
 
 /// Negotiation rounds (`submit_offer`) before the dispute moves to sealed
@@ -156,7 +156,7 @@ pub fn initiate_dispute(env: &Env, lease_id: u64, party: Party, disputed_amount:
     }
 
     let config = storage::get_config(env);
-    let payout = MockVault::withdraw(env, &config.defindex_vault, lease.vault_shares);
+    let payout = DefindexVault::withdraw(env, &config.defindex_vault, lease.vault_shares);
     let undisputed_payout = payout - disputed_amount;
 
     if undisputed_payout > 0 {
@@ -360,6 +360,7 @@ pub fn official_ruling(env: &Env, lease_id: u64, split: i128) {
 mod test {
     use super::*;
     use crate::types::{Config, Lease};
+    use crate::vault::test_double::TestDefindexVaultClient;
     use crate::{EscrowContract, EscrowContractClient};
     use soroban_sdk::testutils::{Address as _, Ledger as _};
     use soroban_sdk::{token, Env};
@@ -372,9 +373,12 @@ mod test {
     /// already run: `Active`, fully funded, term already reached (so
     /// `initiate_dispute` is immediately callable — see the module doc's
     /// note on why this checks `Active` + the clock, not a stored
-    /// `Settling`). Mints `amount` of a fresh SAC token directly to the
-    /// contract's own balance, standing in for `deposit()`'s pull (same
-    /// shortcut `lease.rs`'s `settle_undisputed` tests use).
+    /// `Settling`). Registers `vault::test_double::TestDefindexVault` (see
+    /// its own doc comment) as `defindex_vault` and mints `amount` of a
+    /// fresh SAC token directly to *that vault's* balance, standing in for
+    /// `deposit()`'s pull + real DeFindex deposit already having run —
+    /// `initiate_dispute`'s own `DefindexVault::withdraw` call is what
+    /// moves it back into the escrow contract from there.
     fn seed_active_lease(
         env: &Env,
         contract_id: &Address,
@@ -384,13 +388,15 @@ mod test {
         let tenant = Address::generate(env);
         let arbitrator = Address::generate(env);
         let admin = Address::generate(env);
-        let defindex_vault = Address::generate(env);
         let soroswap_router = Address::generate(env);
 
         let sac = env.register_stellar_asset_contract_v2(admin.clone());
         let usdc_token = sac.address();
         let usdc_admin = token::StellarAssetClient::new(env, &usdc_token);
-        usdc_admin.mint(contract_id, &amount);
+
+        let defindex_vault = env.register(crate::vault::test_double::TestDefindexVault, ());
+        TestDefindexVaultClient::new(env, &defindex_vault).init(&usdc_token);
+        usdc_admin.mint(&defindex_vault, &amount);
 
         let lease_id = 1u64;
         let term = env.ledger().timestamp();

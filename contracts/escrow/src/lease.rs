@@ -9,7 +9,7 @@
 
 use crate::storage;
 use crate::types::{Config, Lease, LeaseStatus};
-use crate::vault::{MockVault, Vault};
+use crate::vault::{DefindexVault, Vault};
 use soroban_sdk::{token, Address, Env};
 
 /// Landlord opens a lease record. Only `owner` can call this — the
@@ -47,7 +47,7 @@ pub fn create_lease(
 }
 
 /// Tenant funds the lease: pulls `lease.amount` of the configured USDC
-/// token into the contract, hands it to the vault (mocked — see
+/// token into the contract, deposits it into the real DeFindex vault (see
 /// `vault.rs`), and moves the lease from `Created` to `Funded`. Only
 /// `lease.tenant` can call this; the tenant's address comes from the lease
 /// record itself, not a caller-supplied parameter, so there's nothing for a
@@ -64,11 +64,10 @@ pub fn deposit(env: &Env, lease_id: u64) {
 
     let config: Config = storage::get_config(env);
 
-    // Real transfer — only the DeFindex leg below is mocked.
     let usdc = token::Client::new(env, &config.usdc_token);
     usdc.transfer(&lease.tenant, &env.current_contract_address(), &lease.amount);
 
-    let shares = MockVault::deposit(env, &config.defindex_vault, lease.amount);
+    let shares = DefindexVault::deposit(env, &config.defindex_vault, &config.usdc_token, lease.amount);
 
     lease.status = LeaseStatus::Funded;
     lease.vault_shares = shares;
@@ -76,7 +75,7 @@ pub fn deposit(env: &Env, lease_id: u64) {
 }
 
 /// Ends the lease and pays the tenant everything held for it: principal
-/// plus whatever the (mocked) vault returns as yield. Two ways in, matching
+/// plus whatever the DeFindex vault returns as yield. Two ways in, matching
 /// the two triggers the architecture doc describes:
 ///
 /// - the deadline (`lease.term`) has passed — permissionless, since the
@@ -91,12 +90,11 @@ pub fn deposit(env: &Env, lease_id: u64) {
 /// Only reachable from `Active` (both move-in hashes recorded — see
 /// `photo.rs`): settling a lease nobody has moved into yet, or one that's
 /// already resolved, is rejected. There is no partial/disputed split here —
-/// that's `initiate_dispute` / `pay_undisputed` territory and isn't built
-/// yet; this is the architecture's simple, nothing-was-disputed path, which
-/// is why the whole payout goes to the tenant (see the architecture doc's
-/// own description of this path: principal + yield to the tenant, approved
-/// deductions to the landlord only apply once there's a dispute to approve
-/// them against).
+/// that's `initiate_dispute` territory (`dispute.rs`); this is the
+/// architecture's simple, nothing-was-disputed path, which is why the whole
+/// payout goes to the tenant (see the architecture doc's own description of
+/// this path: principal + yield to the tenant, approved deductions to the
+/// landlord only apply once there's a dispute to approve them against).
 pub fn settle_undisputed(env: &Env, lease_id: u64) {
     let mut lease = storage::get_lease(env, lease_id);
 
@@ -112,7 +110,7 @@ pub fn settle_undisputed(env: &Env, lease_id: u64) {
     }
 
     let config: Config = storage::get_config(env);
-    let payout = MockVault::withdraw(env, &config.defindex_vault, lease.vault_shares);
+    let payout = DefindexVault::withdraw(env, &config.defindex_vault, lease.vault_shares);
 
     let usdc = token::Client::new(env, &config.usdc_token);
     usdc.transfer(&env.current_contract_address(), &lease.tenant, &payout);
@@ -126,12 +124,23 @@ pub fn settle_undisputed(env: &Env, lease_id: u64) {
 mod test {
     use crate::storage;
     use crate::types::{Config, Lease, LeaseStatus};
+    use crate::vault::test_double::{TestDefindexVault, TestDefindexVaultClient};
     use crate::{EscrowContract, EscrowContractClient};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{token, Address, Env};
 
     fn setup(env: &Env) -> Address {
         env.register(EscrowContract, ())
+    }
+
+    /// Registers `vault::test_double::TestDefindexVault` (see its own doc
+    /// comment — a local stand-in that genuinely moves `usdc_token`, not a
+    /// hardcoded number) and points it at `usdc_token`, for tests that
+    /// exercise a code path calling into the vault.
+    fn setup_vault(env: &Env, usdc_token: &Address) -> Address {
+        let vault = env.register(TestDefindexVault, ());
+        TestDefindexVaultClient::new(env, &vault).init(usdc_token);
+        vault
     }
 
     #[test]
@@ -189,13 +198,13 @@ mod test {
         let tenant = Address::generate(&env);
         let arbitrator = Address::generate(&env);
         let admin = Address::generate(&env);
-        let defindex_vault = Address::generate(&env);
         let soroswap_router = Address::generate(&env);
 
         let sac = env.register_stellar_asset_contract_v2(admin.clone());
         let usdc_token = sac.address();
         let usdc_admin = token::StellarAssetClient::new(&env, &usdc_token);
         let usdc = token::Client::new(&env, &usdc_token);
+        let defindex_vault = setup_vault(&env, &usdc_token);
 
         let amount = 1_000_0000000i128;
         usdc_admin.mint(&tenant, &amount);
@@ -218,12 +227,15 @@ mod test {
         client.deposit(&lease_id);
 
         assert_eq!(usdc.balance(&tenant), 0);
-        assert_eq!(usdc.balance(&contract_id), amount);
+        // Forwarded straight into the vault — nothing sits in the escrow
+        // contract's own balance once deposit() completes.
+        assert_eq!(usdc.balance(&contract_id), 0);
+        assert_eq!(usdc.balance(&defindex_vault), amount);
 
         env.as_contract(&contract_id, || {
             let lease = storage::get_lease(&env, lease_id);
             assert_eq!(lease.status, LeaseStatus::Funded);
-            // MockVault: 1:1 share:asset placeholder (see vault.rs).
+            // TestDefindexVault: 1:1 share:asset placeholder (see vault.rs).
             assert_eq!(lease.vault_shares, amount);
         });
     }
@@ -288,12 +300,12 @@ mod test {
         let tenant = Address::generate(&env);
         let arbitrator = Address::generate(&env);
         let admin = Address::generate(&env);
-        let defindex_vault = Address::generate(&env);
         let soroswap_router = Address::generate(&env);
 
         let sac = env.register_stellar_asset_contract_v2(admin.clone());
         let usdc_token = sac.address();
         let usdc_admin = token::StellarAssetClient::new(&env, &usdc_token);
+        let defindex_vault = setup_vault(&env, &usdc_token);
 
         let amount = 1_000_0000000i128;
         usdc_admin.mint(&tenant, &(amount * 2));
@@ -330,19 +342,19 @@ mod test {
         let tenant = Address::generate(&env);
         let arbitrator = Address::generate(&env);
         let admin = Address::generate(&env);
-        let defindex_vault = Address::generate(&env);
         let soroswap_router = Address::generate(&env);
 
         let sac = env.register_stellar_asset_contract_v2(admin.clone());
         let usdc_token = sac.address();
         let usdc_admin = token::StellarAssetClient::new(&env, &usdc_token);
         let usdc = token::Client::new(&env, &usdc_token);
+        let defindex_vault = setup_vault(&env, &usdc_token);
 
         let amount = 1_000_0000000i128;
-        // Stands in for deposit() already having pulled this into the
-        // contract (MockVault never actually moves it anywhere — see
-        // vault.rs — so the balance really is still sitting here).
-        usdc_admin.mint(&contract_id, &amount);
+        // Stands in for deposit() already having pulled this in and handed
+        // it to the (real, cross-contract-called) vault — so the balance
+        // sits with the vault test double, not the escrow contract itself.
+        usdc_admin.mint(&defindex_vault, &amount);
 
         let lease_id = 1u64;
         let term = env.ledger().timestamp() + 1_000_000; // well in the future

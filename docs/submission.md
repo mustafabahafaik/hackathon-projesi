@@ -8,20 +8,83 @@ Hackathon submission formuna girilecek kontrat ID buradaki **güncel deploy**'du
 | | |
 | --- | --- |
 | Ağ | Stellar Testnet |
-| Contract ID | `CBA4FFYLQAMOC5JAHATW3YK67OZQN3KQC2KACXZCB66T6Q5LHQ5VERXQ` |
-| Wasm hash | `237a6709c26f3ffe423af6fed4911ad04d9d30d66c422868c09872471b7e2d02` |
-| Deploy tx | https://stellar.expert/explorer/testnet/tx/db342b9dd186ce4d5a87dafaf8604625b820c5573243a841d598d0a3f3cc99cf |
+| Contract ID | `CDVW63VKWFJ76YTMW2QVQRAE22WRBR6SSBWB7JVZUZZU7V766HERFJBO` |
+| Wasm hash | `2dc8bccda2d89d13dbc71529d17853e9b14b4af5dec7aaca5caf7ac34c51f1b9` |
+| Deploy tx | https://stellar.expert/explorer/testnet/tx/562f469a14ac3a98e9c757b75f9bd65945bfc3892be0df0661fa77a0681be403 |
 | Deploy eden hesap | `GCSMWDEADCNWD6MZPDSRU5NPUSD7RPU2BQIFVQDOAU4QQQTSKEHKDY4M` (alias `deployer`) |
 | Deploy tarihi | 2026-09-18 |
-| Kontrat sürümü | `initialize`, `create_lease`, `deposit`, `record_photo_hash`, `settle_undisputed`, `get_lease` — dispute döngüsü henüz yok |
+| Kontrat sürümü | `initialize`, `create_lease`, `deposit`, `record_photo_hash`, `settle_undisputed`, `initiate_dispute`, `submit_offer`, `submit_final_offer`, `arbitrator_decide`, `official_ruling`, `get_lease`, `get_dispute` — **gerçek DeFindex vault entegrasyonu ile** (bkz. aşağıdaki "DeFindex Entegrasyon Kanıtı") |
+| `initialize()`'a verilen `defindex_vault` | `CBMVK2JK6NTOT2O4HNQAIQFJY232BHKGLIMXDVQVHIIZKDACXDFZDWHN` — DeFindex'in gerçek testnet USDC kasası (Paltalabs), mock değil |
+| `initialize()`'a verilen `usdc_token` | `CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU` — o kasanın gerçek testnet USDC'si (issuer: Blend Capital'ın testnet faucet hesabı) |
 
 Kontratı yeniden deploy etmek için: `scripts/deploy-testnet.sh [alias]`. Script tekrar
 çalıştırılabilir — `deployer` kimliği ve testnet fonlaması zaten varsa yeniden kullanılır.
+Bu güncel deploy'u uçtan uca (gerçek DeFindex deposit + withdraw dahil) yeniden üretmek
+için: `scripts/defindex-integration-test.sh` — bkz. aşağıdaki bölüm.
 
-## Smoke test kanıtı
+## DeFindex Entegrasyon Kanıtı (Faz 2.1)
 
-`scripts/smoke-test-testnet.sh <CONTRACT_ID>` yukarıdaki kontrata karşı gerçek zincir
-çağrılarıyla çalıştırıldı (`initialize` → `create_lease` → `get_lease` → `deposit` →
+`scripts/defindex-integration-test.sh`, yukarıdaki güncel kontratı sıfırdan deploy edip
+**gerçek DeFindex testnet kasasına** karşı tam bir `deposit()` → `settle_undisputed()`
+turu çalıştırdı. Hiçbir adım mock değil: `deposit()` ve `settle_undisputed()`,
+`contracts/escrow/src/vault.rs`'daki `DefindexVaultClient` üzerinden DeFindex'in kendi
+kasa kontratına gerçek bir cross-contract call yapıyor; aşağıdaki `vault_shares` ve
+ödeme miktarları bu script'in kendi hesapladığı sayılar değil, DeFindex'in zincirden geri
+okunan kendi muhasebesi.
+
+**Kullanılan gerçek testnet kaynakları** (hepsi bağımsız doğrulanabilir):
+- DeFindex kasası: `CBMVK2JK6NTOT2O4HNQAIQFJY232BHKGLIMXDVQVHIIZKDACXDFZDWHN` (Paltalabs
+  USDC kasası — `stellar contract info interface --id ... --network testnet` ile
+  arayüzü, `get_assets()` ile tuttuğu varlık doğrulandı; ayrıca kaynağı
+  [paltalabs/defindex](https://github.com/paltalabs/defindex)'ten okunup `deposit`'in
+  gerçekten `asset_client.transfer(&from, &vault, &amount)` yaptığı, dolayısıyla
+  `authorize_as_current_contract`'a neden ihtiyaç duyulduğu (`vault.rs`'de belgelendi)
+  doğrulandı).
+- Testnet USDC: `CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU`
+  (`USDC:GATALTGTWIOT6BUDBCZM3Q4OQ4BO2COLOAZ7IYSKPLC2PMSOPPGF5V56` — Blend Capital'ın
+  testnet faucet hesabı bu varlığın issuer'ı; `tenant` hesabı gerçek bir faucet
+  işlemiyle fonlandı, bkz. `scripts/defindex-integration-test.sh`'in `ensure_tenant_usdc`
+  fonksiyonu).
+
+**Adım adım (lease_id=1, 100000000 stroop = 10 USDC):**
+
+| Adım | Tx | Sonuç |
+| --- | --- | --- |
+| `initialize` | [74f098f…4fcae3](https://stellar.expert/explorer/testnet/tx/74f098fb64abef58c260fd9f99d0225d2735a1a3d802412413465210244fcae3) | gerçek `defindex_vault`/`usdc_token` ile |
+| `create_lease` | [1cc4db2…6949e](https://stellar.expert/explorer/testnet/tx/1cc4db2ffd6d43f9eda63ef410c04e8bec0ac25c993235c3e8b7fa61a0c6949e) | `lease_id=1`, `status=0` (Created) |
+| `deposit` | [b5914f1…979a4e](https://stellar.expert/explorer/testnet/tx/b5914f1bb141432c76a38115a079d625d833745f8c5f1d1bf3240ce1aa979a4e) | DeFindex `deposit` event: `df_tokens_minted=100000000`, `total_supply_before=9421856304` (paylaşılan, önceden dolu bir testnet kasası — bu sayıyı biz üretmedik) |
+| `get_lease` (deposit sonrası) | — | `status=1` (Funded), `vault_shares="100000000"` — DeFindex'in kendi döndürdüğü değer |
+| `record_photo_hash` x2 | [dcf8034…f0b9b](https://stellar.expert/explorer/testnet/tx/dcf8034da83995b6a404b27b81a89a37e87cbba3a7123c9819128105e74f0b9b), [274a766…3fb073](https://stellar.expert/explorer/testnet/tx/274a7660f609a181951dac940679efb9cd9e2abe3d2a126362734dac373fb073) | `Funded` → `Active` |
+| `settle_undisputed` | [d63c893…642b20](https://stellar.expert/explorer/testnet/tx/d63c893ad61cff273c8a20c60cf32ff7ac2ce74d27ba2164c3bb7d23cb642b20) | DeFindex `withdraw` event: `df_tokens_burned=100000000`, `amounts_withdrawn=[100000000]` |
+| `get_lease` (settle sonrası) | — | `status=9` (Resolved), `vault_shares="0"` |
+| tenant USDC bakiyesi | — | `settle_undisputed` çağrısıyla tam `100000000` stroop arttı — DeFindex'in gerçek geri ödemesi |
+
+Depozito ve çekim ~20 saniye arayla olduğu için gerçekçi bir getiri birikmedi (yatan ve
+çekilen miktar birebir eşit) — bu beklenen ve dürüst bir sonuç, uydurma bir getiri sayısı
+değil. Aylar süren gerçek bir kirada `settle_undisputed()` aynı kod yoluyla DeFindex'in o
+zamana kadar biriktirdiği gerçek getiriyi de geri getirecek.
+
+### `authorize_as_current_contract` — neden gerekli
+
+DeFindex'in `deposit()`'i, escrow'un doğrudan çağrısını (`from.require_auth()`, tek atlama)
+otomatik yetkilendirir, ama sonra kendi içinde `asset_client.transfer(&from, ...)` çağırarak
+USDC'yi ikinci bir atlamayla (escrow → kasa → token) çeker — Soroban bunu otomatik
+yetkilendirmez. `contracts/escrow/src/vault.rs`'deki `DefindexVault::deposit`, bu spesifik
+alt-çağrıyı `env.authorize_as_current_contract(...)` ile önceden bildirir; bu olmadan hem
+yerel testler hem de yukarıdaki gerçek testnet çağrısı `HostError: Error(Auth,
+InvalidAction)` ile patlıyordu (bu oturumda önce böyle patladığını, sonra düzeltmenin işe
+yaradığını gördük). `withdraw()`'da buna gerek yok — DeFindex oradaki transferi kendi
+adresinden yapıyor, kendi kendini yetkilendiriyor. Ayrıntı için `vault.rs`'in kendi modül
+yorumuna bak.
+
+## Smoke test kanıtı (Faz 1 — eski deploy `CBA4FFYLQAMOC5JAHATW3YK67OZQN3KQC2KACXZCB66T6Q5LHQ5VERXQ`)
+
+Bu bölüm artık "güncel deploy" değil, Faz 1'in tarihsel kanıtı — DeFindex entegrasyonu
+öncesi, `usdc_token` yerine native XLM SAC kullanılarak koşulmuştu (bkz. altındaki "Bilinen
+basitleştirme"). Güncel deploy ve gerçek DeFindex kanıtı için yukarıdaki bölümlere bak.
+
+`scripts/smoke-test-testnet.sh <CONTRACT_ID>` o zamanki kontrata (`CBA4FFYL…`) karşı gerçek
+zincir çağrılarıyla çalıştırıldı (`initialize` → `create_lease` → `get_lease` → `deposit` →
 `get_lease`). Hiçbir adım simüle edilmedi; hepsi testnet'e gönderilmiş, imzalanmış
 işlemler.
 
@@ -45,14 +108,14 @@ işlemler.
 Bu, CLAUDE.md'nin "mock/hardcoded veri kabul edilmiyor" kriterine karşılık gelen kanıt:
 yukarıdaki her tx gerçek bir testnet işlemidir, stellar.expert'te bağımsız doğrulanabilir.
 
-### Bilinen basitleştirme: `usdc_token` yerine native XLM SAC
+### Bilinen basitleştirme (Faz 1'e özgü, artık çözüldü): `usdc_token` yerine native XLM SAC
 
-Smoke test'te `usdc_token` olarak gerçek testnet USDC yerine native XLM'nin Stellar
+Bu smoke test'te `usdc_token` olarak gerçek testnet USDC yerine native XLM'nin Stellar
 Asset Contract'ı (`CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`) kullanıldı
 — gerçek testnet USDC edinmek ya da kendi test varlığımızı issuer + trustline ile kurmak
-bu adımın kapsamını aşıyordu. Kod yolu (SEP-41 `token.transfer`) birebir aynı; production'da
-`initialize()`'a gerçek USDC SAC adresi verilecek. Bu, README'de ve `.env.example`'da da
-belirtilmeli.
+o zaman bu adımın kapsamını aşıyordu. **Faz 2.1'de çözüldü:** yukarıdaki "DeFindex
+Entegrasyon Kanıtı" bölümü gerçek testnet USDC (`CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSRCJU`)
+ile çalıştı — bu artık güncel deploy'un `usdc_token`'ı.
 
 ## Toolchain notları (bu ortamda karşılaşılan, tekrar edebilecek sorunlar)
 
@@ -72,15 +135,27 @@ belirtilmeli.
   ancak GNU `ld.exe` UTF-8 olmayan/ASCII-dışı karakter içeren yolları çözemiyor.
   `scripts/deploy-testnet.sh` bunu, repo yolu ASCII değilse kaynağı geçici bir ASCII
   dizine kopyalayıp oradan derleyerek otomatik olarak aşıyor.
+- **`stellar contract optimize`, "Reading: ... (N bytes)" satırını stderr değil
+  stdout'a yazıyor.** `deploy-testnet.sh`'in kendi sözleşmesi ("stdout = sadece contract
+  ID, `CONTRACT_ID=$(...)` için güvenli") bu yüzden bozuluyordu —
+  `scripts/defindex-integration-test.sh`'in ilk denemesinde `CONTRACT_ID` değişkeni bu
+  satırı da yutup geçersiz bir kontrat ID'sine dönüştü. Düzeltme: o komutun çıktısı artık
+  `>&2` ile stderr'e yönlendiriliyor.
 
 ## Kalan boşluklar
 
-- Dispute döngüsü (`initiate_dispute`, `submit_offer`, `submit_final_offer`,
-  `arbitrator_decide`, `official_ruling`) henüz yok — CLAUDE.md'nin "zaman kalırsa"
-  listesinde.
-- `MockVault` hâlâ mock (Faz 2, gerçek DeFindex entegrasyonu bekliyor) — `deposit`/
-  `settle_undisputed` bunu açıkça yorumla işaretliyor.
-- `initialize()`'daki `defindex_vault`/`soroswap_router` adresleri bu smoke test'te
-  rastgele üretilmiş test adresleri; gerçek DeFindex/Soroswap kontrat adresleri
-  belirlenince kontrat yeniden `initialize` edilmemeli (tek seferlik) — bunun yerine
-  doğru adreslerle **yeni bir deploy** yapılıp bu dosya güncellenmeli.
+- ~~Dispute döngüsü yok~~ — Faz 1.5'te eklendi (`initiate_dispute`, `submit_offer`,
+  `submit_final_offer`, `arbitrator_decide`, `official_ruling`); güncel deploy'da var.
+- ~~`MockVault` hâlâ mock~~ — Faz 2.1'de gerçek DeFindex entegrasyonuna geçildi (bkz.
+  yukarıdaki "DeFindex Entegrasyon Kanıtı"); `deposit`/`settle_undisputed`/
+  `initiate_dispute` artık DeFindex'in testnet kasasına gerçek cross-contract call
+  yapıyor.
+- `soroswap_router` hâlâ rastgele üretilmiş bir test adresi — Soroswap entegrasyonu
+  (CLAUDE.md'nin zorunlu MVP listesindeki madde 3) henüz yapılmadı, kontrat bu adresi
+  şu an hiç kullanmıyor. Gerçek Soroswap router adresi belirlenince kontrat yeniden
+  `initialize` edilmemeli (tek seferlik) — doğru adresle **yeni bir deploy** yapılıp bu
+  dosya güncellenmeli.
+- Anchor entegrasyonu (SEP-6/24 gerçek ya da protokolü tam uygulayan simüle anchor)
+  henüz yok.
+- Otomatik delil paketi export'u ve hakem paneli UI'ı hâlâ yok — CLAUDE.md'nin "zaman
+  kalırsa" listesinde, en düşük öncelikli maddeler.
