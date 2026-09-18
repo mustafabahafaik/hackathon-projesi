@@ -59,6 +59,11 @@ README.md
 9. Her önemli adımdan sonra (kontrat deploy, entegrasyon çalışır hale geldiğinde, bir akış uçtan uca test edildiğinde) `git commit` yap — büyük, tek seferlik commit'ler yerine küçük ve izlenebilir commit'ler tercih edilir.
 10. Bir tasarım kararında (state machine, fonksiyon imzası, veri modeli) mimari dokümandan sapman gerekiyorsa, nedenini bu dosyaya veya `docs/architecture.md`'ye kısaca not düş.
 
+## Bilinen Tasarım Sapmaları (rule 10)
+
+- **`contracts/escrow/src/dispute.rs`, anlaşmazlık döngüsü:** Mimari dokümanın state diyagramındaki `pay_undisputed()` ve `escalate_arbitration()` adımları ayrı fonksiyon olarak eklenmedi — sırasıyla `initiate_dispute()` ve `submit_final_offer()`'a katlandı (her ikisi de kendi başına bir taraf kararı gerektirmeyen, mekanik geçişler). Sonuç olarak `LeaseStatus::Disputed` zincirde asla kalıcı bir `status` değeri olarak gözlemlenmez — `initiate_dispute()` kirayı doğrudan `Active`'den `PartialPaid`'e taşır. `decision_rejected()` de ayrı bir imzalı işlem olarak yok: herkese açık bir zincirde bir tarafı "reddet" işlemine imza atmaya zorlamanın yolu olmadığından, mimari dokümanın kabul/red adımı bir **zaman aşımı**na dönüştürüldü — `arbitrator_decide()`, hakem tahkim süresini kaçırdıktan sonra çağrılırsa (yetkisiz/permissionless) kirayı `Frozen`'a taşır; `official_ruling()` de sadece `Frozen` durumundan çalışır. Ayrıntı ve gerekçe için `dispute.rs`'in modül yorumuna bak.
+- **`packages/sdk/src/index.ts`'in `LeaseStatus` yorumu, `contracts/escrow`'daki durumla tutarsız:** TS tarafındaki yorum "`PartialPaid` -> `settle_undisputed` itirazsız kısmı öder, sonra `Disputed` -> `initiate_dispute` tartışmalı kısmı dondurur" sırasını ima ediyor; ama hem mimari dokümanın state diyagramı hem de kontratın kendisi tam tersini uyguluyor (`Settling -> Disputed (initiate_dispute) -> PartialPaid (pay_undisputed, artık initiate_dispute'a katlı)`). `packages/sdk` bu görevin kapsamı dışında bırakıldı — TS SDK'ya dokunan bir sonraki oturum bu yorumu kontrata göre düzeltmeli.
+
 ## Zorunlu MVP Kapsamı (bu sırayla ilerle)
 
 1. Soroban escrow contract: `create_lease`, `deposit`, `record_photo_hash`, `settle_undisputed` — testnet'e deploy et, contract ID'yi `docs/submission.md`'ye kaydet.

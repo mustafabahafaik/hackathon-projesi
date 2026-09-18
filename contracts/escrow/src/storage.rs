@@ -12,28 +12,37 @@
 //!   there's no per-call cost to bundling three addresses into one record
 //!   instead of three separate keys — and one `get`/`set` pair is simpler
 //!   than three.
-//! - **persistent** — `Lease` and `PhotoRecord`. A lease runs for months
-//!   and its photo evidence has to outlive it and stay provably unaltered;
+//! - **persistent** — `Lease`, `PhotoRecord`, and `Dispute` (the dispute
+//!   case file — offer history included). A lease runs for months and its
+//!   photo/offer evidence has to outlive it and stay provably unaltered;
 //!   persistent is the only tier Soroban won't silently archive without an
 //!   explicit (rent-paying) TTL extension, which is what "the proof still
 //!   exists when a court asks for it six months later" actually requires.
-//! - **temporary** — not used yet. The active offer round's session data
-//!   (Phase 2's dispute cycle) belongs here: once a round closes, nobody
-//!   needs that data again and there's no reason to keep paying rent on it.
+//! - **temporary** — the active dispute phase's deadline
+//!   (`DataKey::DisputeDeadline`, see `dispute.rs`). Once a phase closes
+//!   (a round advances, final offers lock in, arbitration resolves),
+//!   nobody needs that specific deadline again — the next phase writes its
+//!   own — so there's no reason to keep paying rent on it.
 
-use crate::types::{Config, DataKey, Lease, Party, PhotoPhase, PhotoRecord};
+use crate::types::{Config, DataKey, Dispute, Lease, Party, PhotoPhase, PhotoRecord};
 use soroban_sdk::Env;
 
 /// Ledger close time is ~5s, so ~17,280 ledgers/day. These bump numbers are
-/// a first-pass estimate, not a verified network parameter — this
-/// environment has no Rust toolchain to build and deploy against testnet,
-/// so sanity-check them against the network's current `max_entry_ttl`
-/// before `deposit()` / `settle_undisputed()` ship.
+/// a first-pass estimate, not a verified network parameter — sanity-check
+/// them against the network's current `max_entry_ttl` if TTL-related errors
+/// show up on a live deploy.
 const LEDGERS_PER_DAY: u32 = 17_280;
 /// Re-extend once an entry has under 30 days of TTL left.
 const BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 30;
 /// ...out to 90 days from the ledger that triggers the bump.
 const BUMP_EXTEND_TO: u32 = LEDGERS_PER_DAY * 90;
+
+/// Temporary-storage bump numbers — much shorter horizon than the
+/// persistent ones above, since a dispute deadline only ever needs to
+/// survive one phase (days, per `dispute.rs`'s window constants), not
+/// months.
+const TEMP_BUMP_THRESHOLD: u32 = LEDGERS_PER_DAY * 1;
+const TEMP_BUMP_EXTEND_TO: u32 = LEDGERS_PER_DAY * 30;
 
 // ---------------------------------------------------------------- config --
 
@@ -122,6 +131,48 @@ pub fn set_photo_record(env: &Env, lease_id: u64, record: &PhotoRecord) {
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND_TO);
+}
+
+// ---------------------------------------------- dispute case file (persistent) --
+
+pub fn has_dispute(env: &Env, lease_id: u64) -> bool {
+    env.storage().persistent().has(&DataKey::Dispute(lease_id))
+}
+
+pub fn get_dispute(env: &Env, lease_id: u64) -> Dispute {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Dispute(lease_id))
+        .expect("dispute not found")
+}
+
+/// No `delete_dispute`, same no-delete rule as leases and photo records —
+/// the case file is evidence.
+pub fn set_dispute(env: &Env, lease_id: u64, dispute: &Dispute) {
+    let key = DataKey::Dispute(lease_id);
+    env.storage().persistent().set(&key, dispute);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_EXTEND_TO);
+}
+
+// ------------------------------------------- dispute phase deadline (temporary) --
+
+pub fn get_dispute_deadline(env: &Env, lease_id: u64) -> u64 {
+    env.storage()
+        .temporary()
+        .get(&DataKey::DisputeDeadline(lease_id))
+        .expect("no active dispute phase")
+}
+
+/// Overwrites whatever deadline the previous phase left behind — see the
+/// module doc's temporary-storage note.
+pub fn set_dispute_deadline(env: &Env, lease_id: u64, deadline: u64) {
+    let key = DataKey::DisputeDeadline(lease_id);
+    env.storage().temporary().set(&key, &deadline);
+    env.storage()
+        .temporary()
+        .extend_ttl(&key, TEMP_BUMP_THRESHOLD, TEMP_BUMP_EXTEND_TO);
 }
 
 #[cfg(test)]
@@ -272,6 +323,69 @@ mod test {
         let contract_id = setup(&env);
         env.as_contract(&contract_id, || {
             get_photo_record(&env, 1u64, PhotoPhase::MoveOut, Party::Landlord);
+        });
+    }
+
+    #[test]
+    fn dispute_round_trips_through_persistent_storage() {
+        let env = Env::default();
+        let contract_id = setup(&env);
+
+        env.as_contract(&contract_id, || {
+            let lease_id = 4127u64;
+            assert!(!has_dispute(&env, lease_id));
+
+            let dispute = Dispute {
+                disputed_amount: 500_0000000i128,
+                initiator: Party::Landlord,
+                round: 0,
+                landlord_offer: -1,
+                tenant_offer: -1,
+                landlord_final_offer: -1,
+                tenant_final_offer: -1,
+                arbitrator_decision: -1,
+            };
+            set_dispute(&env, lease_id, &dispute);
+
+            assert!(has_dispute(&env, lease_id));
+            let loaded = get_dispute(&env, lease_id);
+            assert_eq!(loaded, dispute);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "dispute not found")]
+    fn get_dispute_panics_when_missing() {
+        let env = Env::default();
+        let contract_id = setup(&env);
+        env.as_contract(&contract_id, || {
+            get_dispute(&env, 1u64);
+        });
+    }
+
+    #[test]
+    fn dispute_deadline_round_trips_through_temporary_storage_and_is_overwritable() {
+        let env = Env::default();
+        let contract_id = setup(&env);
+
+        env.as_contract(&contract_id, || {
+            let lease_id = 4127u64;
+            set_dispute_deadline(&env, lease_id, 1_700_000_000u64);
+            assert_eq!(get_dispute_deadline(&env, lease_id), 1_700_000_000u64);
+
+            // The next phase overwrites it rather than appending.
+            set_dispute_deadline(&env, lease_id, 1_700_300_000u64);
+            assert_eq!(get_dispute_deadline(&env, lease_id), 1_700_300_000u64);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "no active dispute phase")]
+    fn get_dispute_deadline_panics_when_missing() {
+        let env = Env::default();
+        let contract_id = setup(&env);
+        env.as_contract(&contract_id, || {
+            get_dispute_deadline(&env, 1u64);
         });
     }
 }

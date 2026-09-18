@@ -4,25 +4,29 @@
 //! `env.storage()` directly (instance / persistent / temporary split per
 //! CLAUDE.md rule 2), `vault` stands in for the DeFindex integration until
 //! Phase 2, `config` holds one-time setup, `lease` holds the lease
-//! lifecycle (create/fund/settle), and `photo` holds the evidence
-//! attestations. This `impl` block itself stays a thin wrapper per function
-//! so everything else can live in, and be tested from, its own file.
+//! lifecycle (create/fund/settle), `photo` holds the evidence attestations,
+//! and `dispute` holds the dispute resolution cycle. This `impl` block
+//! itself stays a thin wrapper per function so everything else can live in,
+//! and be tested from, its own file.
 //!
 //! Implemented: `initialize`, `create_lease`, `deposit`,
-//! `record_photo_hash`, `settle_undisputed`.
-//! Still to come — the dispute cycle: `initiate_dispute`, `submit_offer`,
-//! `submit_final_offer`, `arbitrator_decide`, `official_ruling`.
+//! `record_photo_hash`, `settle_undisputed`, `initiate_dispute`,
+//! `submit_offer`, `submit_final_offer`, `arbitrator_decide`,
+//! `official_ruling`. `dispute.rs`'s module doc explains a couple of
+//! deliberate deviations from the architecture doc's state diagram
+//! (CLAUDE.md rule 10).
 #![no_std]
 
 pub mod types;
 mod config;
+mod dispute;
 mod lease;
 mod photo;
 mod storage;
 mod vault;
 
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
-use types::{Lease, Party, PhotoPhase};
+use types::{Dispute, Lease, Party, PhotoPhase};
 
 #[contract]
 pub struct EscrowContract;
@@ -86,5 +90,43 @@ impl EscrowContract {
     /// way to read them without maintaining a private off-chain copy.
     pub fn get_lease(env: Env, lease_id: u64) -> Lease {
         storage::get_lease(&env, lease_id)
+    }
+
+    /// Either party names the disputed amount once the lease term has
+    /// ended; pays the undisputed remainder to the tenant immediately and
+    /// freezes the rest. Only callable as the role you actually are, same
+    /// pattern as `record_photo_hash`. See `dispute.rs`.
+    pub fn initiate_dispute(env: Env, lease_id: u64, party: Party, disputed_amount: i128) {
+        dispute::initiate_dispute(&env, lease_id, party, disputed_amount)
+    }
+
+    /// One party's offer or counter-offer in the current negotiation round.
+    /// Only callable as the role you actually are. See `dispute.rs`.
+    pub fn submit_offer(env: Env, lease_id: u64, party: Party, amount: i128) {
+        dispute::submit_offer(&env, lease_id, party, amount)
+    }
+
+    /// One party's sealed final-offer number for last-offer arbitration.
+    /// Only callable as the role you actually are. See `dispute.rs`.
+    pub fn submit_final_offer(env: Env, lease_id: u64, party: Party, amount: i128) {
+        dispute::submit_final_offer(&env, lease_id, party, amount)
+    }
+
+    /// The lease's pre-selected arbitrator picks whose final offer wins —
+    /// binding. Only callable by `lease.arbitrator`. See `dispute.rs`.
+    pub fn arbitrator_decide(env: Env, lease_id: u64, chosen_party: Party) {
+        dispute::arbitrator_decide(&env, lease_id, chosen_party)
+    }
+
+    /// Admin writes a final split once a lease is frozen awaiting a ruling.
+    /// Only callable by `config.admin`. See `dispute.rs`.
+    pub fn official_ruling(env: Env, lease_id: u64, split: i128) {
+        dispute::official_ruling(&env, lease_id, split)
+    }
+
+    /// Read-only: returns a lease's dispute case file as-is. No auth, same
+    /// reasoning as `get_lease`.
+    pub fn get_dispute(env: Env, lease_id: u64) -> Dispute {
+        storage::get_dispute(&env, lease_id)
     }
 }
