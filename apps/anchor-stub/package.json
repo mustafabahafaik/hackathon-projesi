@@ -1,23 +1,22 @@
 {
-  "name": "api",
+  "name": "anchor-stub",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "test": "echo \"no tests yet\" && exit 0",
-    "test:soroswap-live": "tsx src/scripts/soroswap-integration-test.ts"
+    "start": "node dist/index.js"
   },
   "dependencies": {
-    "@depozito/sdk": "*",
     "@stellar/stellar-sdk": "^17.1.0",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

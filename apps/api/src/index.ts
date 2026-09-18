@@ -1,25 +1,20 @@
 /**
- * Backend entry point — placeholder.
- *
- * Real services land here per CLAUDE.md's MVP order: auth (Privy callback),
- * lease records, the escrow orchestrator (anchor -> Soroswap -> DeFindex ->
- * contract calls), and the chain indexer. Nothing below talks to a real
- * service yet — this only proves the API resolves the shared `@depozito/sdk`
- * workspace package.
+ * Backend entry point. `anchor-integration` is the first real HTTP
+ * service wired in (CLAUDE.md MVP step 2) — auth (Privy callback), lease
+ * records, and the chain indexer land in later phases per CLAUDE.md's MVP
+ * order. `escrow-orchestrator` (Soroswap/DeFindex) has no HTTP surface
+ * yet; it's called as a library, not mounted here.
  */
-import { LeaseStatus, type Lease } from "@depozito/sdk";
+import express from "express";
+import { config as anchorIntegrationConfig } from "./services/anchor-integration/config.js";
+import { anchorRouter } from "./services/anchor-integration/index.js";
 
-const placeholder: Lease = {
-  id: "LSE-0000",
-  address: "—",
-  landlord: "—",
-  tenant: "—",
-  arbiter: "—",
-  depositAmount: 0n,
-  termStart: 0,
-  termEnd: 0,
-  status: LeaseStatus.Created,
-  createdAt: 0,
-};
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-console.log("Depozito API — placeholder, henüz servis yok.", placeholder.status);
+app.use(anchorRouter);
+
+app.listen(anchorIntegrationConfig.port, () => {
+  console.log(`[api] listening on ${anchorIntegrationConfig.baseUrl}`);
+});
